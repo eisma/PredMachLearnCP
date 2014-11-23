@@ -1,0 +1,107 @@
+## Study on Prediction of Human Activity
+
+### Executive Summary
+
+This project is based on a study of human activity (see References). The measurements originate from accelerometers worn by differents participants while doing an exercise in 5 different (more or less correct) ways, classified from A to E.  
+This project builds a machine learning algorithm in order predict in which way the exercise was done. After some data cleaning, `r dim(testing.tidy)[2]-1` potential regressor variables remained next to the outcome, i.e. classe A to E. The model itself was built using random forest after splitting the original training data again by ratio 70/30 into a training and testing set.  
+Validation (with the 70% training data) and prediction (on the 30% testing data) promised highly accurate results, so that finally the prediction was run on the original testing data of 20 participants to obtain a character from A to E as a result for the final submission. 
+
+### Data Source
+
+The data is provided online from the Human Activity Recognition Website. Two files are downloaded and directly read into dataframes with the respective names.    
+- pml-training is used to build the model, i.e. it is split into train and test set.  
+- pml-testing contains the 20 test cases for validation on coursera.
+
+```{r download and read, cache=TRUE}
+if (!file.exists("./pml-training.csv")) {
+  download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", destfile="./pml-training.csv")
+  }
+if (!file.exists("./pml-testing.csv")) {
+  download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", destfile="./pml-testing.csv")
+  }
+training.raw <- read.csv("pml-training.csv")
+testing.raw <- read.csv("pml-testing.csv")
+```
+
+### Data Cleaning
+
+An exploratory analysis is carried out on the pml-testing data as it is not useful to include regressors which would not be present with the 20 test cases. Therefore, a vector with the variables (i.e. column numbers) to delete is created. As the experiments are considered to be independent from each other, the first 7 variables containing information of the experiment procedure (id, name, timestamp) are manually excluded. Furthermore, the summary is checked for variables containing only NA's. Finally, those columns are deleted by subsetting. 
+
+```{r cleaning}
+summ.test <- summary(testing.raw)
+todelete <- rbind(1,2,3,4,5,6,7) #the first 7 columns contain only information on the experiment procedure
+for (i in 8:160) {
+  if(summ.test[2,i]=="NA's:20       ") { #this is the exact string in case of columns containing only NA's
+    todelete <- rbind(todelete,i) #the vector 'todelete' is filled up with the column numbers to delete and later used for subsetting
+  }
+}
+training.tidy <- training.raw[,-todelete]
+testing.tidy <- testing.raw[,-todelete]
+```
+
+Both dataframes (training and testing) are treated equally. At the end, there are `r dim(testing.tidy)[2]-1` potential regressors plus the outcome (classe variable) in the training data or the problem_id in the testing data.
+
+### Prediction Model
+
+The dataframe 'training.tidy' is used to built the model. Therefore it is split into a 'training' set and a 'testing' set in the ratio 70/30.  
+Attention, 'testing' is a fraction of 'training.tidy', and has nothing to to with 'testing.tidy', i.e. the cleaned set of 20 samples to be used for the final submission.  
+The prediction model is built using the randomForest package with classe as the outcome and all "cleaned" 52 variables as regressors.
+
+```{r randomForest}
+library(caret)
+library(randomForest)
+set.seed(4711)
+inTrain <- createDataPartition(training.tidy$classe, p=0.7, list=FALSE)
+training <- training.tidy[inTrain,]
+testing <- training.tidy[-inTrain,]
+modFitRF <- randomForest(classe ~ ., data=training)
+```
+
+### Model Validation
+
+The final model of the Random Forest packages gives accuracy measures.
+
+```{r validation}
+modFitRF
+boxplot.matrix(modFitRF$err.rate,use.cols=TRUE,notch=TRUE,xlab="OOB/Classe",ylab="Error rate",main = "Figure 1. Error rates of the model fit, i.e. using Training Data (70%)")
+```
+
+The out-of-bag (OOB) estimate of the error rate is 0.54%. Furthermore, Figure 1 shows a boxplot of the OOB estimate of the error rate and the classifaction error by class which lies in average always below 1.2 %.
+
+### Prediction
+
+Then a prediction is carried out on the 30% of the data which was not used for the model fit. 
+
+``` {r prediction}
+predRF <- predict(modFitRF, testing)
+conMat <- confusionMatrix(predRF,testing$classe)
+conMat
+plot(conMat$byClass[,8], xaxt = "n", xlab = "", ylab = "", main = "Figure 2. Balanced Accuracy of the prediction by lass, i.e. using Testing Data (30%)")
+axis(side = 1, at = 1:5, labels = names(conMat$byClass[,8]))
+```
+
+The confusion matrix  shows an accuracy of `r conMat$overall[1]*100`%. Figure 2 shows the balanced accuracy of the prediction by class.
+
+### Prediction Assignment Submission
+
+Finally, the model is used to predict the 20 samples in the initially given test set (called testing.tidy in this study). The result is stored in a character vector predRF20.  
+The following steps correspond to the instructions to build the files for submission.
+
+```{r test20}
+predRF20 <- predict(modFitRF, testing.tidy)
+answers <- as.character(predRF20) # in order to avoid strange results with the following submission code
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+pml_write_files(answers)
+```
+
+### References
+
+The data for this project come from this source:  
+http://groupware.les.inf.puc-rio.br/har
+
